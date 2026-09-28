@@ -1,0 +1,143 @@
+{
+  "info": {
+    "name": "InsuredMine Node.js Assessment",
+    "description": "Task 1 (CSV/XLSX ingestion via worker threads, policy search, aggregated policies by user) and Task 2 (CPU-based restart, scheduled messages) APIs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "jobId", "value": "" },
+    { "key": "userId", "value": "" },
+    { "key": "scheduledMessageId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Task 1.1 - Upload (worker thread)",
+      "item": [
+        {
+          "name": "POST /upload (multipart file)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data.jobId) { pm.collectionVariables.set('jobId', body.data.jobId); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            }
+          }
+        },
+        {
+          "name": "GET /upload/:jobId (poll status)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/upload/{{jobId}}" }
+        }
+      ]
+    },
+    {
+      "name": "Task 1.2 - Search policies by username",
+      "item": [
+        {
+          "name": "GET /policies/search?username=",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/policies/search?username=lura&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["policies", "search"],
+              "query": [
+                { "key": "username", "value": "lura" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Task 1.3 - Aggregated policies by user",
+      "item": [
+        {
+          "name": "GET /policies/aggregate",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/aggregate?page=1&limit=20"
+          }
+        },
+        {
+          "name": "GET /policies/aggregate/:userId",
+          "request": { "method": "GET", "url": "{{baseUrl}}/policies/aggregate/{{userId}}" }
+        }
+      ]
+    },
+    {
+      "name": "Task 2.1 - CPU monitor demo",
+      "item": [
+        {
+          "name": "GET /debug/cpu-stress (dev only)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/debug/cpu-stress?durationMs=15000"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Task 2.2 - Scheduled messages",
+      "item": [
+        {
+          "name": "POST /messages/schedule",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data._id) { pm.collectionVariables.set('scheduledMessageId', body.data._id); }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/messages/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Follow up with client\",\n  \"day\": \"2026-10-01\",\n  \"time\": \"14:30\",\n  \"timezoneOffsetMinutes\": 0\n}"
+            }
+          }
+        },
+        {
+          "name": "GET /messages/schedule/:id",
+          "request": { "method": "GET", "url": "{{baseUrl}}/messages/schedule/{{scheduledMessageId}}" }
+        },
+        {
+          "name": "GET /messages/schedule (list, filter by status)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/messages/schedule?status=pending&page=1&limit=20"
+          }
+        }
+      ]
+    }
+  ]
+}
