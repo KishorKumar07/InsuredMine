@@ -250,20 +250,22 @@
     },
     {
       "name": "4. CPU monitor auto-restart (Task 2.1)",
-      "description": "Feature: watches how hard the server's CPU is working. If it stays very busy (70%+) for a sustained stretch, the app shuts itself down cleanly and automatically starts a fresh copy - like an auto-restart safety net. You can't fully SEE this in Postman alone (it happens in the server's terminal logs) - this request just triggers it. See the instructions below for what to watch for.",
+      "description": "Feature: watches how hard the server's CPU is working. If it stays very busy (70%+) for a sustained stretch, the app shuts itself down cleanly and automatically starts a fresh copy - like an auto-restart safety net. You can't fully SEE this in Postman alone (it happens in the server's terminal logs) - this request just triggers it. See the instructions below for what to watch for.\n\nIMPORTANT: request 4a is EXPECTED to sometimes fail/error in Postman itself (e.g. 'ECONNRESET' or 'socket hang up'). That is NOT a bug - it means the restart fired WHILE this exact request was still running, and the process handling it got killed out from under it. The thing that matters is 4b afterwards, which proves the server came back up healthy with a new process id.",
       "item": [
         {
           "name": "4a. GET Trigger CPU stress (dev-only demo endpoint)",
           "request": {
             "method": "GET",
             "url": "{{baseUrl}}/debug/cpu-stress?durationMs=20000",
-            "description": "This deliberately makes the CPU work hard for 20 seconds, purely to demo the restart feature - it is NOT a normal production API (it's disabled entirely when NODE_ENV=production).\n\nHOW TO WATCH THE FEATURE WORK:\n1. Send this request.\n2. Immediately switch to the terminal window where `npm start` is running.\n3. Within a few seconds you'll see log lines like:\n   'CPU usage above threshold ... consecutive: 1'\n   'CPU usage above threshold ... consecutive: 2'\n   'CPU usage above threshold ... consecutive: 3'\n   'CPU threshold sustained -> triggering restart'\n   'Starting graceful shutdown' -> 'Worker exited' -> 'Forking replacement worker...' -> 'Server listening on port 3000'\n4. That whole sequence is the feature working: hot CPU -> clean shutdown -> automatic restart.\n\nThis request itself will just return a 200 once the 20s finishes - the interesting part is the SERVER LOGS, not this response."
+            "description": "This deliberately makes the CPU work hard for 20 seconds, purely to demo the restart feature - it is NOT a normal production API (it's disabled entirely when NODE_ENV=production).\n\nHOW TO WATCH THE FEATURE WORK:\n1. Send this request.\n2. Immediately switch to the terminal window where `npm start` is running.\n3. Within a few seconds you'll see log lines like:\n   'CPU usage above threshold ... consecutive: 1'\n   'CPU usage above threshold ... consecutive: 2'\n   'CPU usage above threshold ... consecutive: 3'\n   'CPU threshold sustained -> triggering restart'\n   'Starting graceful shutdown' -> 'Worker exited' -> 'Forking replacement worker...' -> 'Server listening on port 3000'\n4. That whole sequence is the feature working: hot CPU -> clean shutdown -> automatic restart.\n\nTWO POSSIBLE OUTCOMES FOR THIS REQUEST, BOTH ARE FINE:\n- It returns 200 after ~20s (the stress finished before the restart could interrupt it), OR\n- Postman shows an error like 'ECONNRESET'/'socket hang up' PARTWAY through (the restart fired WHILE this request was still open, so the process serving it got killed mid-response). This is expected, not a failure of the feature - it's proof the restart is real and immediate, not merely scheduled for later.\n\nEither way, go straight to 4b next - THAT is the request that proves the feature worked."
           },
           "event": [
             {
               "listen": "test",
               "script": {
-                "exec": ["pm.test('200 OK after the stress finishes', () => pm.response.to.have.status(200));"]
+                "exec": [
+                  "if (pm.response) { pm.test('If a response came back, it was 200', () => pm.response.to.have.status(200)); }"
+                ]
               }
             }
           ]
