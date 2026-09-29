@@ -1,4 +1,5 @@
 const request = require('supertest');
+const mongoose = require('mongoose');
 const { createApp } = require('../../src/app');
 const ScheduledMessage = require('../../src/models/ScheduledMessage');
 const Message = require('../../src/models/Message');
@@ -54,6 +55,23 @@ describe('GET /api/messages/schedule/:id and listing', () => {
     const res = await request(app).get(`/api/messages/schedule/${created.body.data._id}`);
     expect(res.status).toBe(200);
     expect(res.body.data.message).toBe('x');
+  });
+
+  test('returns a 404 error envelope (not success:true) for a well-formed but unknown id', async () => {
+    // Regression test: this used to respond `ok(res, null, 404)`, i.e.
+    // { success: true, data: null } with a 404 status - a self-contradicting
+    // envelope that broke the documented { success:false, error } contract.
+    const missingId = new mongoose.Types.ObjectId();
+    const res = await request(app).get(`/api/messages/schedule/${missingId}`);
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).toMatch(/not found/i);
+  });
+
+  test('returns 400 (not 500) for a malformed id', async () => {
+    const res = await request(app).get('/api/messages/schedule/not-a-valid-object-id');
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
   });
 
   test('lists scheduled messages filtered by status', async () => {

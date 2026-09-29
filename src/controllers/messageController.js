@@ -1,4 +1,4 @@
-const { ok } = require('../utils/apiResponse');
+const { ok, fail } = require('../utils/apiResponse');
 const { asyncHandler } = require('../middlewares/asyncHandler');
 const { scheduleMessage, getScheduledMessage, listScheduledMessages } = require('../services/messageService');
 
@@ -9,7 +9,7 @@ const createScheduledMessage = asyncHandler(async (req, res) => {
 
 const getScheduledMessageById = asyncHandler(async (req, res) => {
   const result = await getScheduledMessage(req.params.id);
-  if (!result) return ok(res, null, 404);
+  if (!result) return fail(res, 404, 'Scheduled message not found');
   return ok(res, result);
 });
 

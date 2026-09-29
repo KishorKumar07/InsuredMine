@@ -94,6 +94,17 @@ describe('GET /api/upload/:jobId', () => {
     expect(res.status).toBe(404);
   });
 
+  test('returns 400 (not 500) for a malformed job id', async () => {
+    // Regression test: a non-ObjectId string ("zzz") used to fall through to
+    // the generic 500 handler and echo Mongoose's raw CastError message
+    // (which also names the internal model). It's a client mistake, so it
+    // must be a 400 with a clean, envelope-shaped error.
+    const res = await request(app).get('/api/upload/not-a-valid-object-id');
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.message).not.toMatch(/CastError|UploadJob/);
+  });
+
   test('returns job metadata for a real job', async () => {
     const job = await UploadJob.create({ originalFileName: 'x.csv', status: 'queued' });
     const res = await request(app).get(`/api/upload/${job._id}`);
