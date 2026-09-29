@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "InsuredMine Node.js Assessment",
-    "description": "Task 1 (CSV/XLSX ingestion via worker threads, policy search, aggregated policies by user) and Task 2 (CPU-based restart, scheduled messages) APIs.",
+    "description": "Click-through test guide for every feature. Run requests TOP TO BOTTOM, inside each folder, in order — later requests reuse ids saved automatically by earlier ones (jobId, userId, scheduledMessageId), so skipping ahead will fail with a 404/empty result, not because the API is broken.\n\nBefore you start:\n1. Make sure the server is running (see README 'Running the app').\n2. Set the `baseUrl` variable below if your server isn't on localhost:3000.\n3. Run '0. Health Check' first to confirm the server is reachable at all.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -12,19 +12,100 @@
   ],
   "item": [
     {
-      "name": "Health",
+      "name": "0. Health Check",
+      "description": "Confirms the server is up before you test anything else. If this fails, the app isn't running — go run `npm start` first.",
       "item": [
         {
-          "name": "GET /health",
-          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+          "name": "GET Server is alive?",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health",
+            "description": "Expected: 200 OK, { success: true, data: { status: 'up', pid, uptimeSec } }.\nIf this fails to connect at all, the server isn't running - start it with `npm start`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Server responded 200', () => pm.response.to.have.status(200));",
+                  "pm.test('status is up', () => pm.expect(pm.response.json().data.status).to.eql('up'));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
     {
-      "name": "Task 1.1 - Upload (worker thread)",
+      "name": "1. Upload the spreadsheet (Task 1.1)",
+      "description": "Feature: you give it the CSV file of insurance records. It reads the file and saves it into MongoDB, split across 6 organized tables (Agents, Users, Accounts, Categories, Carriers, Policies). This runs on a background worker thread so the server doesn't freeze while it works - that's why the upload request returns instantly with a jobId, and you poll a separate request to see when it's actually done.",
       "item": [
         {
-          "name": "POST /upload (multipart file)",
+          "name": "1a. POST Upload the CSV file",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Click 'Select Files' and choose: docs/data-sheet - Node js Assesment (2) (1).csv from the project folder"
+                }
+              ]
+            },
+            "description": "IMPORTANT: click into the 'file' row's value cell and select the CSV file from the project's docs/ folder before sending.\n\nExpected: 202 Accepted, with a jobId. This is saved automatically into the {{jobId}} variable for the next request - the upload itself keeps running in the background after this responds."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Accepted (202)', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('jobId returned', () => pm.expect(body.data.jobId).to.be.a('string'));",
+                  "if (body.data && body.data.jobId) { pm.collectionVariables.set('jobId', body.data.jobId); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1b. GET Check upload progress/result",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/upload/{{jobId}}",
+            "description": "Run this AFTER 1a. Uses the jobId that 1a saved automatically.\n\nRun it a few times, a couple seconds apart, until status changes from 'processing' to 'completed'.\n\nExpected on success: status: 'completed', errors: [], and insertedCounts showing real numbers, e.g. policies: 1198 for the full sheet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const status = pm.response.json().data.status;",
+                  "console.log('Upload job status:', status);",
+                  "if (status === 'completed') { pm.test('Upload completed with no errors', () => pm.expect(pm.response.json().data.errors).to.have.lengthOf(0)); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "1c. (Repeat) Upload the SAME file again - proves no duplicates",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": [], "description": "Same CSV file as 1a" }
+              ]
+            },
+            "description": "Optional but a good test: re-upload the exact same file. Then re-run 1b with the NEW jobId this returns.\n\nExpected: the insertedCounts (e.g. policies: 1198) stay exactly the same as before - proving the app doesn't create duplicate records when a file is uploaded twice."
+          },
           "event": [
             {
               "listen": "test",
@@ -35,27 +116,35 @@
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "1d. (Negative test) Upload with no file -> should fail cleanly",
           "request": {
             "method": "POST",
             "url": "{{baseUrl}}/upload",
-            "body": {
-              "mode": "formdata",
-              "formdata": [{ "key": "file", "type": "file", "src": [] }]
+            "body": { "mode": "formdata", "formdata": [] },
+            "description": "Sends the request with NO file attached, on purpose.\n\nExpected: 400 Bad Request with a clear error message - NOT a 500 crash. This proves the API validates input properly instead of blowing up."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rejected with 400, not a crash', () => pm.response.to.have.status(400));"
+                ]
+              }
             }
-          }
-        },
-        {
-          "name": "GET /upload/:jobId (poll status)",
-          "request": { "method": "GET", "url": "{{baseUrl}}/upload/{{jobId}}" }
+          ]
         }
       ]
     },
     {
-      "name": "Task 1.2 - Search policies by username",
+      "name": "2. Search a person's policies (Task 1.2)",
+      "description": "Feature: look up all insurance policies belonging to someone by typing part of their name (there's no 'username' field in the data, so this searches the person's name instead).",
       "item": [
         {
-          "name": "GET /policies/search?username=",
+          "name": "2a. GET Search by name (e.g. 'lura')",
           "request": {
             "method": "GET",
             "url": {
@@ -63,79 +152,283 @@
               "host": ["{{baseUrl}}"],
               "path": ["policies", "search"],
               "query": [
-                { "key": "username", "value": "lura" },
+                { "key": "username", "value": "lura", "description": "Try any first name from the CSV file - partial match, case-insensitive" },
                 { "key": "page", "value": "1" },
                 { "key": "limit", "value": "20" }
               ]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Task 1.3 - Aggregated policies by user",
-      "item": [
-        {
-          "name": "GET /policies/aggregate",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/policies/aggregate?page=1&limit=20"
-          }
-        },
-        {
-          "name": "GET /policies/aggregate/:userId",
-          "request": { "method": "GET", "url": "{{baseUrl}}/policies/aggregate/{{userId}}" }
-        }
-      ]
-    },
-    {
-      "name": "Task 2.1 - CPU monitor demo",
-      "item": [
-        {
-          "name": "GET /debug/cpu-stress (dev only)",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/debug/cpu-stress?durationMs=15000"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Task 2.2 - Scheduled messages",
-      "item": [
-        {
-          "name": "POST /messages/schedule",
+            },
+            "description": "Run this AFTER Step 1 (you need data uploaded first, or this will return an empty list).\n\nExpected: 200 OK with a list of policies for that person, each showing carrier, category, and agent details filled in (not just raw ids)."
+          },
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "const body = pm.response.json();",
-                  "if (body.data && body.data._id) { pm.collectionVariables.set('scheduledMessageId', body.data._id); }"
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const results = pm.response.json().data.results;",
+                  "if (results.length) { pm.collectionVariables.set('userId', results[0].userId._id); }",
+                  "console.log('Found', results.length, 'policies');"
                 ]
               }
             }
-          ],
+          ]
+        },
+        {
+          "name": "2b. (Negative test) Search with NO name -> should fail cleanly",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/search",
+            "description": "No 'username' query param, on purpose.\n\nExpected: 400 Bad Request saying username is required. This is CORRECT behavior, not a bug - the API is supposed to reject this."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rejected with 400 as expected', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Totals per user (Task 1.3)",
+      "description": "Feature: for every person, shows how many policies they have and their total premium (price) added up - computed live from the database, not stored separately.",
+      "item": [
+        {
+          "name": "3a. GET Aggregated totals for all users",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/aggregate?page=1&limit=5",
+            "description": "Run this AFTER Step 1.\n\nExpected: 200 OK with a list of users, each showing totalPolicies and totalPremium. This also saves the first userId found into {{userId}} for the next request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const results = pm.response.json().data.results;",
+                  "if (results.length) { pm.collectionVariables.set('userId', results[0].userId); }",
+                  "console.log('userId saved for next request:', pm.collectionVariables.get('userId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3b. GET Aggregated totals for ONE user",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/aggregate/{{userId}}",
+            "description": "Run this AFTER 3a (uses the userId it saved).\n\nExpected: 200 OK with that one user's totalPolicies, totalPremium, and full policy list with category/carrier names filled in."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] }
+            }
+          ]
+        },
+        {
+          "name": "3c. (Negative test) Aggregate with a fake/invalid userId",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/policies/aggregate/not-a-real-id",
+            "description": "Sends a made-up, invalid id on purpose.\n\nExpected: 400 Bad Request saying 'Invalid userId' - not a crash."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Rejected with 400 as expected', () => pm.response.to.have.status(400));"] }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. CPU monitor auto-restart (Task 2.1)",
+      "description": "Feature: watches how hard the server's CPU is working. If it stays very busy (70%+) for a sustained stretch, the app shuts itself down cleanly and automatically starts a fresh copy - like an auto-restart safety net. You can't fully SEE this in Postman alone (it happens in the server's terminal logs) - this request just triggers it. See the instructions below for what to watch for.",
+      "item": [
+        {
+          "name": "4a. GET Trigger CPU stress (dev-only demo endpoint)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/debug/cpu-stress?durationMs=20000",
+            "description": "This deliberately makes the CPU work hard for 20 seconds, purely to demo the restart feature - it is NOT a normal production API (it's disabled entirely when NODE_ENV=production).\n\nHOW TO WATCH THE FEATURE WORK:\n1. Send this request.\n2. Immediately switch to the terminal window where `npm start` is running.\n3. Within a few seconds you'll see log lines like:\n   'CPU usage above threshold ... consecutive: 1'\n   'CPU usage above threshold ... consecutive: 2'\n   'CPU usage above threshold ... consecutive: 3'\n   'CPU threshold sustained -> triggering restart'\n   'Starting graceful shutdown' -> 'Worker exited' -> 'Forking replacement worker...' -> 'Server listening on port 3000'\n4. That whole sequence is the feature working: hot CPU -> clean shutdown -> automatic restart.\n\nThis request itself will just return a 200 once the 20s finishes - the interesting part is the SERVER LOGS, not this response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('200 OK after the stress finishes', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4b. GET Confirm the server restarted (different pid)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health",
+            "description": "Run this AFTER 4a has finished and you've seen the restart in the logs.\n\nExpected: still 200 OK and status 'up', but with a DIFFERENT pid than before 4a - proof it's a freshly restarted process, not the same one that was running earlier. Compare it against the pid from '0. Health Check' at the very start."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Schedule a message for later (Task 2.2)",
+      "description": "Feature: you tell it 'save this message into the database at this exact date/time in the future', and it actually does it right on schedule - even if the server restarts in between (that's Task 2.1 above). This proves the schedule is stored safely in the database, not just held in memory.",
+      "item": [
+        {
+          "name": "5a. POST Schedule a message ~2 minutes from now",
           "request": {
             "method": "POST",
             "url": "{{baseUrl}}/messages/schedule",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"Follow up with client\",\n  \"day\": \"2026-10-01\",\n  \"time\": \"14:30\",\n  \"timezoneOffsetMinutes\": 0\n}"
+              "raw": "{\n  \"message\": \"Test message from Postman\",\n  \"day\": \"{{scheduleDay}}\",\n  \"time\": \"{{scheduleTime}}\",\n  \"timezoneOffsetMinutes\": 0\n}"
+            },
+            "description": "A 'Pre-request Script' on this request automatically fills in {{scheduleDay}} and {{scheduleTime}} with a real date/time about 2 minutes from right now (in UTC) - you don't need to type a date by hand.\n\nExpected: 201 Created, status: 'pending'. The returned _id is saved automatically for the next request."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const future = new Date(Date.now() + 2 * 60 * 1000);",
+                  "const day = future.toISOString().slice(0, 10);",
+                  "const time = future.toISOString().slice(11, 16);",
+                  "pm.variables.set('scheduleDay', day);",
+                  "pm.variables.set('scheduleTime', time);",
+                  "console.log('Scheduling for (UTC):', day, time);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Created (201)', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test('status is pending', () => pm.expect(body.data.status).to.eql('pending'));",
+                  "if (body.data && body.data._id) { pm.collectionVariables.set('scheduledMessageId', body.data._id); }",
+                  "console.log('Scheduled message id saved:', body.data._id);"
+                ]
+              }
             }
-          }
+          ]
         },
         {
-          "name": "GET /messages/schedule/:id",
-          "request": { "method": "GET", "url": "{{baseUrl}}/messages/schedule/{{scheduledMessageId}}" }
-        },
-        {
-          "name": "GET /messages/schedule (list, filter by status)",
+          "name": "5b. GET Check the scheduled message (run right after 5a)",
           "request": {
             "method": "GET",
-            "url": "{{baseUrl}}/messages/schedule?status=pending&page=1&limit=20"
-          }
+            "url": "{{baseUrl}}/messages/schedule/{{scheduledMessageId}}",
+            "description": "Run this right after 5a. Expected: status: 'pending' (it hasn't reached its scheduled time yet)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] }
+            }
+          ]
+        },
+        {
+          "name": "5c. GET Check again AFTER waiting ~2+ minutes -> should be delivered",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/messages/schedule/{{scheduledMessageId}}",
+            "description": "WAIT about 2-3 minutes after running 5a, THEN send this.\n\nExpected: status changes to 'completed', and resultingMessageId is now filled in - it delivered itself automatically, with no further action from you."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json().data;",
+                  "console.log('Status:', data.status, '- if still pending, wait longer and resend this request.');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5d. GET List all scheduled messages (filter by status)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/messages/schedule?status=pending&page=1&limit=20",
+            "description": "Lists messages by status. Change 'pending' to 'completed' in the URL to see delivered ones."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"] }
+            }
+          ]
+        },
+        {
+          "name": "5e. (Negative test) Schedule with a time already in the past",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/messages/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"This should be rejected\",\n  \"day\": \"2020-01-01\",\n  \"time\": \"00:00\"\n}"
+            },
+            "description": "Uses a date from the past, on purpose.\n\nExpected: 400 Bad Request saying the resolved schedule time is in the past - correct behavior, not a bug."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": { "exec": ["pm.test('Rejected with 400 as expected', () => pm.response.to.have.status(400));"] }
+            }
+          ]
+        },
+        {
+          "name": "6. BONUS - Prove a restart doesn't lose a scheduled message",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/messages/schedule",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Survived a restart!\",\n  \"day\": \"{{scheduleDay}}\",\n  \"time\": \"{{scheduleTime}}\"\n}"
+            },
+            "description": "This is the most impressive combined test - it proves Task 2.1 and Task 2.2 work correctly TOGETHER.\n\nSTEPS:\n1. Send this request (schedules a message ~2 min out, same as 5a).\n2. Immediately go run '4a. GET Trigger CPU stress' from folder 4 to force a restart.\n3. Wait past the scheduled time (check the server logs to confirm it restarted).\n4. Use '5c'-style check (GET /messages/schedule/{{scheduledMessageId}}) to confirm status is still 'completed' despite the restart in between.\n\nThis proves scheduled messages are saved safely in the database, not lost when the server restarts."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const future = new Date(Date.now() + 2 * 60 * 1000);",
+                  "pm.variables.set('scheduleDay', future.toISOString().slice(0, 10));",
+                  "pm.variables.set('scheduleTime', future.toISOString().slice(11, 16));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.data && body.data._id) { pm.collectionVariables.set('scheduledMessageId', body.data._id); }",
+                  "console.log('Now go run 4a to trigger the restart, then wait and re-check this id:', body.data._id);"
+                ]
+              }
+            }
+          ]
         }
       ]
     }
