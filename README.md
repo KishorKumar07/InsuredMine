@@ -193,7 +193,7 @@ default). Returns immediately (`202`) with a job id; parsing/inserting happens i
 event loop stays free for other requests while a 1000+ row file is processed.
 
 ```bash
-curl -X POST http://localhost:3000/api/upload -F "file=@docs/data-sheet.csv"
+curl -X POST http://localhost:3000/api/upload -F "file=@docs/data-sheet - Node js Assesment (2) (1).csv"
 # 202 { "success": true, "data": { "jobId": "…", "message": "Upload accepted, processing in a worker thread." } }
 ```
 
@@ -376,7 +376,7 @@ npm run test:watch
 npm run lint
 ```
 
-50 tests across unit (pure functions: date parsing, row normalization, regex escaping, schedule
+54 tests across unit (pure functions: date parsing, row normalization, regex escaping, schedule
 resolution, the CPU monitor's math) and integration (real HTTP requests via `supertest` against a
 real in-memory MongoDB, including actually spawning the upload `worker_threads.Worker` and
 exercising it against the same DB). All 1,198 rows of the real provided sheet parse and normalize
@@ -447,7 +447,7 @@ docs/             the assessment's own attachments (JD PDF, sample sheet)
   and called out here explicitly, rather than silently added or silently dropped.
 - **Dependency versions**: `multer` was bumped from the commonly-referenced 1.x line to 2.x, and
   `csv-parse`/`uuid` were bumped to their latest majors, specifically to close `npm audit`-flagged
-  vulnerabilities in those packages (multer 1.x has known CVEs). One moderate advisory remains,
+  vulnerabilities in those packages (multer 1.x has known CVEs). Two moderate advisories remain (production deps),
   transitively inside `exceljs`'s own `uuid` dependency - not something this project controls
   without vendoring/patching `exceljs` itself, and it's UUID generation only (no known exploit
   path relevant to how it's used here); flagged here rather than left silent.

@@ -184,7 +184,10 @@ async function run() {
       }
       if (ops.length) {
         const result = await Policy.bulkWrite(ops, { ordered: false });
-        counts.policies += (result.upsertedCount || 0) + (result.modifiedCount || 0);
+        // matchedCount (not modifiedCount): with timestamps on, a re-upload
+        // "modifies" every row, and counting it as modified/inserted is misleading.
+        // upserted + matched = every policy row written, new or existing.
+        counts.policies += (result.upsertedCount || 0) + (result.matchedCount || 0);
       }
     }
 

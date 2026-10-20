@@ -3,6 +3,9 @@ const Message = require('../models/Message');
 const env = require('../config/env');
 const logger = require('../config/logger');
 
+// A claimed job that hasn't finished within this window is assumed orphaned.
+const STALE_PROCESSING_MS = 60 * 1000;
+
 /**
  * Task 2.2 delivery mechanism.
  *
@@ -48,8 +51,17 @@ class MessageScheduler {
       // Drain all currently-due jobs, not just one, each poll tick.
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        const now = new Date();
+        // Also reclaim jobs stuck in 'processing' (the worker that claimed
+        // them died before delivering, e.g. a CPU-triggered restart).
+        const staleBefore = new Date(now.getTime() - STALE_PROCESSING_MS);
         const claimed = await ScheduledMessage.findOneAndUpdate(
-          { status: 'pending', scheduledAt: { $lte: new Date() } },
+          {
+            $or: [
+              { status: 'pending', scheduledAt: { $lte: now } },
+              { status: 'processing', updatedAt: { $lte: staleBefore } },
+            ],
+          },
           { $set: { status: 'processing' }, $inc: { attempts: 1 } },
           { sort: { scheduledAt: 1 }, new: true }
         );

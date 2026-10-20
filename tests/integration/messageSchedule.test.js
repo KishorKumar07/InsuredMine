@@ -140,4 +140,35 @@ describe('MessageScheduler delivery', () => {
     const delivered = await Message.findOne({ message: 'Missed while down' });
     expect(delivered).not.toBeNull();
   });
+
+  test('reclaims a message orphaned in "processing" by a worker that died mid-delivery', async () => {
+    const orphan = await ScheduledMessage.create({
+      message: 'Orphaned',
+      day: '2020-01-01',
+      time: '00:00',
+      scheduledAt: new Date(Date.now() - 10 * 60 * 1000),
+      status: 'processing',
+    });
+    // Backdate updatedAt past the stale threshold (bypassing mongoose timestamps).
+    await ScheduledMessage.collection.updateOne(
+      { _id: orphan._id },
+      { $set: { updatedAt: new Date(Date.now() - 5 * 60 * 1000) } }
+    );
+
+    // A freshly claimed (non-stale) job must NOT be stolen.
+    const fresh = await ScheduledMessage.create({
+      message: 'In flight',
+      day: '2020-01-01',
+      time: '00:00',
+      scheduledAt: new Date(Date.now() - 1000),
+      status: 'processing',
+    });
+
+    const scheduler = new MessageScheduler({ pollIntervalMs: 999999 });
+    await scheduler._pollOnce();
+
+    expect((await ScheduledMessage.findById(orphan._id)).status).toBe('completed');
+    expect(await Message.countDocuments({ message: 'Orphaned' })).toBe(1);
+    expect((await ScheduledMessage.findById(fresh._id)).status).toBe('processing');
+  });
 });
